@@ -1,0 +1,60 @@
+name: Unpack Qwantum VM 2.9 archive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Qwantum_VM_Windows_2.9.zip.b64"
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Decode and unpack archive safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          encoded = Path("Qwantum_VM_Windows_2.9.zip.b64")
+          archive = Path("Qwantum_VM_Windows_2.9.zip")
+          archive.write_bytes(base64.b64decode(encoded.read_text(encoding="ascii"), validate=True))
+
+          with ZipFile(archive) as zf:
+              for info in zf.infolist():
+                  rel = PurePosixPath(info.filename)
+                  if rel.is_absolute() or ".." in rel.parts:
+                      raise RuntimeError(f"Unsafe archive path: {info.filename}")
+                  dest = Path(".").joinpath(*rel.parts)
+                  if info.is_dir():
+                      dest.mkdir(parents=True, exist_ok=True)
+                  else:
+                      dest.parent.mkdir(parents=True, exist_ok=True)
+                      dest.write_bytes(zf.read(info.filename))
+
+          archive.unlink()
+          encoded.unlink()
+          PY
+
+      - name: Commit extracted project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No extracted changes to commit."
+            exit 0
+          fi
+          git commit -m "Unpack Qwantum VM 2.9 source files"
+          git push
