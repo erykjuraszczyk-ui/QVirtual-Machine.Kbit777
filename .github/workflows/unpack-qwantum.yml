@@ -16,23 +16,53 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Decode and unpack archive safely
+      - name: Decode, validate, and unpack archive
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64
+          import io
           from pathlib import Path, PurePosixPath
           from zipfile import ZipFile
 
           parts = sorted(Path(".").glob("Qwantum_VM_Windows_2.9.part[0-9][0-9]"))
           if len(parts) != 8:
               raise RuntimeError(f"Expected 8 archive chunks, found {len(parts)}")
-          encoded_text = "".join(p.read_text(encoding="ascii") for p in parts)
-          archive = Path("Qwantum_VM_Windows_2.9.zip")
-          archive.write_bytes(base64.b64decode(encoded_text, validate=True))
+          encoded_text = "".join(p.read_text(encoding="ascii").strip() for p in parts)
 
+          if len(encoded_text) == 39933:
+              # Repair one accidental extra character by accepting only a candidate
+              # that has a valid ZIP end record and passes every member CRC check.
+              repaired = None
+              for i in range(len(encoded_text)):
+                  candidate = encoded_text[:i] + encoded_text[i + 1:]
+                  try:
+                      raw = base64.b64decode(candidate, validate=True)
+                  except Exception:
+                      continue
+                  if len(raw) < 22 or raw[-22:-18] != b"PK\x05\x06":
+                      continue
+                  try:
+                      with ZipFile(io.BytesIO(raw)) as test_zip:
+                          if len(test_zip.infolist()) == 10 and test_zip.testzip() is None:
+                              repaired = raw
+                              break
+                  except Exception:
+                      continue
+              if repaired is None:
+                  raise RuntimeError("Could not repair uploaded archive chunks; ZIP validation failed.")
+              archive_bytes = repaired
+          elif len(encoded_text) == 39932:
+              archive_bytes = base64.b64decode(encoded_text, validate=True)
+          else:
+              raise RuntimeError(f"Unexpected encoded archive length: {len(encoded_text)}")
+
+          archive = Path("Qwantum_VM_Windows_2.9.zip")
+          archive.write_bytes(archive_bytes)
           with ZipFile(archive) as zf:
+              if zf.testzip() is not None:
+                  raise RuntimeError("ZIP CRC validation failed.")
               for info in zf.infolist():
                   rel = PurePosixPath(info.filename)
                   if rel.is_absolute() or ".." in rel.parts:
