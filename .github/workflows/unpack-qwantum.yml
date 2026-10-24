@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "Qwantum_VM_Windows_2.9.part04"
+      - "Qwantum_VM_Windows_2.9.part07"
 
 permissions:
   contents: write
@@ -26,8 +26,8 @@ jobs:
           from zipfile import ZipFile
 
           parts = sorted(Path(".").glob("Qwantum_VM_Windows_2.9.part[0-9][0-9]"))
-          if len(parts) != 5:
-              raise RuntimeError(f"Expected 5 archive chunks, found {len(parts)}")
+          if len(parts) != 8:
+              raise RuntimeError(f"Expected 8 archive chunks, found {len(parts)}")
           encoded_text = "".join(p.read_text(encoding="ascii") for p in parts)
           archive = Path("Qwantum_VM_Windows_2.9.zip")
           archive.write_bytes(base64.b64decode(encoded_text, validate=True))
