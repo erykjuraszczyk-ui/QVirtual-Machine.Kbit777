@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QWANTUM VM 2.3</title>
+<style>
+:root{color-scheme:dark;--bg:#07101c;--panel:#101e30;--line:#25445e;--cyan:#4be4ff;--green:#65f0bd;--text:#e8f5ff;--muted:#9bb4c8;--red:#ff7e89}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0,#14324b,var(--bg) 55%);color:var(--text);font:15px/1.45 system-ui,Segoe UI,sans-serif}
+header{padding:22px max(18px,calc((100% - 1200px)/2));border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+h1{margin:0;font-size:clamp(24px,4vw,36px);letter-spacing:.04em}h1 span{color:var(--cyan)}.sub{color:var(--muted);margin-top:4px}
+main{max-width:1200px;margin:auto;padding:20px;display:grid;gap:16px;grid-template-columns:repeat(12,minmax(0,1fr))}
+.panel{background:linear-gradient(145deg,#12243a,#0b1727);border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0}.wide{grid-column:span 8}.side{grid-column:span 4}.full{grid-column:1/-1}
+h2{font-size:18px;margin:0 0 12px}button,select,input{background:#0a1626;color:var(--text);border:1px solid #345873;border-radius:9px;padding:9px 11px;font:inherit}button{cursor:pointer}button:hover{border-color:var(--cyan)}button.primary{background:#124b61;border-color:var(--cyan)}button.danger{border-color:#914b59;color:#ffc0c7}button:disabled{opacity:.4;cursor:not-allowed}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>*{min-width:0}.row label{color:var(--muted)}input[type=number]{width:100px}
+#nodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:5px;max-height:150px;overflow:auto;margin-top:12px}.node{aspect-ratio:1;border:1px solid #24617a;border-radius:50%;background:#0b2638}.node.active{background:var(--cyan);box-shadow:0 0 10px #4be4ff88}
+textarea{width:100%;min-height:92px;background:#081422;color:#d8f6ff;border:1px solid var(--line);border-radius:10px;padding:10px;font:13px ui-monospace,monospace}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;border-bottom:1px solid #21394e;padding:8px 6px;vertical-align:top}th{color:var(--muted)}.scroll{overflow:auto;max-height:340px}.status{display:inline-block;padding:3px 7px;border:1px solid #42617a;border-radius:999px;font-size:12px}.COMPLETED{color:var(--green)}.FAILED{color:var(--red)}.RUNNING{color:var(--cyan)}.muted{color:var(--muted)}.message{min-height:24px;color:var(--green);white-space:pre-wrap}.counts{display:flex;gap:8px;flex-wrap:wrap}.count{background:#091726;border:1px solid #284c66;padding:8px 10px;border-radius:8px}.tiny{font-size:12px;color:var(--muted)}
+.gate-item{display:flex;align-items:center;gap:8px;padding:7px;border:1px solid #25445e;border-radius:8px;background:#0b1b2b}
+.gate-item.dragging{opacity:.45;border-style:dashed}.gate-item .gate-code{flex:1;min-width:0;overflow-wrap:anywhere;font:13px ui-monospace,monospace}
+.gate-item button{padding:4px 8px}.gate-item .drag-handle{color:var(--muted);cursor:grab;user-select:none}
+
+@media(max-width:800px){.wide,.side{grid-column:1/-1}main{padding:12px}header{padding:18px}}
+</style></head>
+<body>
+<header><div><h1>QWANTUM <span>VM 2.9</span></h1><div class="sub">Quantum circuit simulator · export wyników · diagnostyka</div></div><div class="row"><span id="health" class="status">Sprawdzanie API…</span><button id="refresh">Odśwież</button></div></header>
+<main>
+<section class="panel wide">
+<h2>Projekt obwodu</h2>
+<div class="row"><label>Nazwa <input id="name" value="Bell state"></label><label>Kubity <input id="qubits" type="number" min="1" max="8" value="2"></label><label>Pomiarów <input id="shots" type="number" min="1" max="100000" value="1024"></label><label>Szum <input id="noise" type="number" min="0" max="0.2" step="0.01" value="0"></label></div>
+<p class="tiny">Każdy wiersz bramki: nazwa, kubit, cel (dla cx/cz/swap). Kąty rx/ry/rz: domyślnie π/2; można podać kąt w radianach w czwartej kolumnie.</p>
+<div class="row" style="margin:10px 0">
+<label>Bramka <select id="gateType"><option>h</option><option>x</option><option>y</option><option>z</option><option>s</option><option>t</option><option>rx</option><option>ry</option><option>rz</option><option>cx</option><option>cz</option><option>swap</option></select></label>
+<label>Kubit <input id="gateQ" type="number" min="0" max="7" value="0"></label>
+<label>Cel <input id="gateTarget" type="number" min="0" max="7" value="1"></label>
+<label>Kąt (rad) <input id="gateAngle" type="number" step="0.1" value="1.57079632679"></label>
+<button id="addGate">Dodaj bramkę</button><button id="clearGates">Wyczyść obwód</button><button id="validateCircuit">Sprawdź obwód</button>
+</div>
+<div class="row" style="margin:8px 0" id="gatePalette">
+<label>Szybkie dodawanie:</label>
+<button type="button" data-gate="h">H</button><button type="button" data-gate="x">X</button><button type="button" data-gate="y">Y</button><button type="button" data-gate="z">Z</button><button type="button" data-gate="s">S</button><button type="button" data-gate="t">T</button><button type="button" data-gate="rx">RX</button><button type="button" data-gate="ry">RY</button><button type="button" data-gate="rz">RZ</button><button type="button" data-gate="cx">CX</button><button type="button" data-gate="cz">CZ</button><button type="button" data-gate="swap">SWAP</button>
+</div>
+<div id="validationResult" class="tiny" aria-live="polite">Sprawdź obwód przed uruchomieniem, aby wykryć błędy i ostrzeżenia.</div>
+<div class="panel" style="padding:10px;margin:8px 0;background:#091726">
+<strong>Edytor kolejności bramek</strong>
+<div class="tiny">Przeciągnij wiersz, aby zmienić kolejność. Przyciski ↑ ↓ przesuwają bramkę; ⧉ duplikuje, a × usuwa ją.</div>
+<div class="row" style="margin-top:8px"><button type="button" id="undoGate" disabled>↶ Cofnij</button><button type="button" id="redoGate" disabled>↷ Ponów</button><button type="button" id="validateIntegrity">Sprawdź połączenia</button></div>
+<div id="integrityResult" class="tiny" aria-live="polite"></div>
+<div id="gateList" style="display:grid;gap:6px;margin-top:8px" aria-live="polite"></div>
+</div>
+<textarea id="gates">h,0
+cx,0,1</textarea>
+<div class="row" style="margin-top:10px"><button id="bell">Przykład Bell</button><button id="exampleSuperposition">Superpozycja H</button><button id="exampleX">Test X</button><button id="exampleGHZ">GHZ · 3 kubity</button><button id="run" class="primary">Dodaj do kolejki</button><button id="save">Zapisz projekt</button><button id="restoreSession">Przywróć sesję lokalną</button><button id="export">Eksport OpenQASM 2.0</button><button id="saveFile">Zapisz obwód JSON</button><button id="statevector" class="primary">Oblicz stan kwantowy</button><button id="stateEvolution" class="primary">Pokaż ewolucję po bramkach</button><button id="noiseEvolution" class="primary">Porównaj stan idealny i zaszumiony</button></div>
+<div id="message" class="message"></div>
+<h2 style="margin-top:18px">Wynik ostatniego zadania</h2><div id="result" class="counts muted">Brak wyników.</div>
+</section>
+<section class="panel side"><h2>Nebiru · 777 węzłów wizualnych</h2><div class="tiny">Wizualizacja koncepcyjna — nie oznacza 777 fizycznych kubitów.</div><div id="nodes"></div><p class="tiny">Limit symulatora w tej wersji: 8 kubitów.</p></section>
+<section class="panel full" id="shotsStabilityPanel">
+<h2>Analiza stabilności liczby pomiarów (shots)</h2>
+<p class="tiny">Uruchamia trzy niezależne próby dla kilku liczebności pomiarów i porównuje je z idealnym rozkładem. Maksymalnie 40 bramek; liczba pomiarów w analizie jest ograniczona do 4096 na próbę.</p>
+<div class="row"><button id="runShotsStability">Analizuj stabilność wyników</button><button id="exportShotsStability" disabled>Eksportuj raport JSON</button></div>
+<div id="shotsStabilityMessage" class="message" role="status"></div>
+<div id="shotsStabilityResults" class="scroll"></div>
+</section>
+<section class="panel full"><h2>Diagnostyka symulatora</h2>
+<div class="row"><button id="runDiagnostics" class="primary">Uruchom testy automatyczne</button><span class="tiny">Testuje znane wyniki: |0⟩, X, H oraz stan Bella.</span></div>
+<div class="row"><button id="diagnosticExport">Eksportuj raport diagnostyczny JSON</button></div><div id="diagnosticSummary" class="message" aria-live="polite"></div>
+<div id="diagnosticReport" class="scroll"></div>
+</section>
+<section class="panel full"><h2>Kolejka zadań</h2><div class="row"><button id="jobsRefresh">Odśwież kolejkę</button><span class="tiny">Status odświeżany automatycznie co 2,5 s.</span></div><div class="scroll"><table><thead><tr><th>Nazwa / ID</th><th>Status</th><th>Utworzono</th><th>Akcje</th></tr></thead><tbody id="jobs"><tr><td colspan="4" class="muted">Ładowanie…</td></tr></tbody></table></div></section>
+<section class="panel full"><h2>Historia eksperymentów i porównanie</h2><div class="row"><button id="expRefresh">Odśwież historię</button><label>A <select id="compareA"></select></label><label>B <select id="compareB"></select></label><button id="compare">Porównaj A/B</button><button id="compareMulti">Raport wielu eksperymentów</button><button id="exportCompareCsv">Eksport porównania CSV</button><button id="exportExperiment">Eksportuj eksperyment A JSON</button><button id="rerunExperiment">Uruchom ponownie A</button><label class="file-label">Importuj JSON <input id="importExperimentFile" type="file" accept=".json,application/json"></label><button id="importExperiment">Importuj eksperyment</button></div><div class="scroll"><table><thead><tr><th>Nazwa</th><th>Kubity</th><th>Shots</th><th>Szum</th><th>Rozkład wyników</th></tr></thead><tbody id="experiments"><tr><td colspan="5" class="muted">Brak eksperymentów.</td></tr></tbody></table></div><div id="comparison"></div><div id="multiComparison"></div><p class="tiny" id="sessionStatus" aria-live="polite">Sesja lokalna: oczekiwanie na zapis.</p></section>
+<section class="panel full"><h2>Schemat obwodu</h2><div class="tiny">Schemat poglądowy generowany z aktualnej listy bramek. Numer kubitu rośnie od q0.</div><div id="circuitDiagram" class="scroll" style="max-height:420px;padding:8px"></div></section>
+<section class="panel full"><h2>Wektor stanu i prawdopodobieństwa</h2><div id="probabilityChart" style="display:flex;gap:5px;align-items:flex-end;min-height:130px;overflow:auto;padding:10px 4px"></div><div id="statevectorResult" class="scroll muted">Kliknij „Oblicz stan kwantowy”, aby zobaczyć amplitudy i prawdopodobieństwa.</div></section>
+<section class="panel full"><h2>Ewolucja stanu po każdej bramce</h2><p class="tiny">Pokazuje rozkład prawdopodobieństwa po stanie początkowym i po każdej bramce obwodu.</p><div id="evolutionSummary" class="message" aria-live="polite"></div><div id="evolutionChart" class="scroll" style="display:grid;gap:12px"></div></section>
+<section class="panel full"><h2>Porównanie ewolucji idealnej i zaszumionej</h2><p class="tiny">Używa ustawienia „Szum” z projektu. Liczba pomiarów na etap jest ograniczona do 4096 dla ochrony czasu obliczeń.</p><div id="noiseEvolutionSummary" class="message" aria-live="polite"></div><div id="noiseEvolutionReport" class="scroll" style="display:grid;gap:12px"></div><button id="exportNoiseReport" disabled>Eksportuj raport porównania JSON</button></section>
+<section class="panel full"><h2>Pliki obwodów JSON</h2><div class="row"><button id="circuitFilesRefresh">Odśwież pliki</button><select id="circuitFileSelect"></select><button id="loadCircuitFile">Wczytaj plik</button><label>Import JSON <input type="file" id="circuitImport" accept=".json,application/json"></label></div><div id="circuitFileMessage" class="tiny"></div></section>
+<section class="panel full"><h2>Zapisane projekty</h2><div class="row"><button id="projectRefresh">Odśwież projekty</button><select id="projectSelect"></select><button id="loadProject">Wczytaj</button><button id="deleteProject" class="danger">Usuń</button></div><div id="projectMessage" class="tiny"></div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let experiments=[],projects=[],circuitFiles=[];
+function show(msg){$('message').textContent=msg}
+function payload(){const qubits=Number($('qubits').value);const gates=$('gates').value.split(/\n/).map(s=>s.trim()).filter(Boolean).map(line=>{const [gate,q,target,angle]=line.split(',').map(x=>x.trim());return {gate,qubit:Number(q),...(target!==undefined&&target!==''?{target:Number(target)}:{}),...(angle!==undefined&&angle!==''?{angle:Number(angle)}:{})}});return {name:$('name').value||'Eksperyment',qubits,shots:Number($('shots').value),noise:Number($('noise').value),gates}}
+async function api(url,opts={}){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});const data=await r.json().catch(()=>({detail:r.statusText}));if(!r.ok)throw Error(data.detail||`HTTP ${r.status}`);return data}
+function nodes(){const root=$('nodes');root.innerHTML='';for(let i=0;i<777;i++){const n=document.createElement('i');n.className='node'+(i%37===0?' active':'');n.title='Węzeł wizualny '+(i+1);root.append(n)}}
+function fmtDate(s){return s?new Date(s).toLocaleString():'—'}
+function renderResult(result){if(!result){$('result').textContent='Brak wyników.';return}$('result').innerHTML='';Object.entries(result.counts||{}).sort((a,b)=>b[1]-a[1]).forEach(([state,count])=>{const el=document.createElement('div');el.className='count';el.textContent=`|${state}⟩: ${count}`;$('result').append(el)})}
+async function refreshJobs(){try{const data=await api('/api/jobs');const body=$('jobs');body.innerHTML='';if(!data.jobs.length){body.innerHTML='<tr><td colspan="4" class="muted">Kolejka jest pusta.</td></tr>';return}for(const j of data.jobs){const tr=document.createElement('tr');const name=document.createElement('td');name.innerHTML=`<strong></strong><div class="tiny"></div>`;name.querySelector('strong').textContent=j.name;name.querySelector('div').textContent=j.id;const st=document.createElement('td');st.innerHTML=`<span class="status ${j.status}">${j.status}</span>`;const dt=document.createElement('td');dt.textContent=fmtDate(j.created_at);const actions=document.createElement('td');const detail=document.createElement('button');detail.textContent='Szczegóły';detail.onclick=()=>jobDetail(j.id);actions.append(detail);if(['QUEUED','RUNNING'].includes(j.status)){const cancel=document.createElement('button');cancel.textContent='Anuluj';cancel.className='danger';cancel.style.marginLeft='5px';cancel.onclick=()=>cancelJob(j.id);actions.append(cancel)}tr.append(name,st,dt,actions);body.append(tr)}}catch(e){$('health').textContent='API niedostępne';show(e.message)}}
+async function jobDetail(id){try{const j=await api('/api/jobs/'+id);if(j.result)renderResult(j.result);show(`Zadanie ${j.name}: ${j.status}${j.error?'\n'+j.error:''}`)}catch(e){show(e.message)}}
+async function cancelJob(id){try{await api('/api/jobs/'+id+'/cancel',{method:'POST'});await refreshJobs()}catch(e){show(e.message)}}
+async function refreshExperiments(){try{const data=await api('/api/experiments');experiments=data.experiments;const body=$('experiments');body.innerHTML='';for(const e of experiments){const tr=document.createElement('tr');const vals=[e.name,e.qubits,e.shots,e.noise,Object.entries(e.counts).map(([k,v])=>`${k}:${v}`).join(' · ')];vals.forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});body.append(tr)}for(const id of ['compareA','compareB']){const sel=$(id);const old=sel.value;sel.innerHTML='';experiments.forEach(e=>{const o=document.createElement('option');o.value=e.id;o.textContent=e.name+' · '+e.id.slice(0,8);sel.append(o)});if([...sel.options].some(o=>o.value===old))sel.value=old}}catch(e){show(e.message)}}
+async function compare(){if($('compareA').value===$('compareB').value||!$('compareA').value||!$('compareB').value){$('comparison').textContent='Wybierz dwa różne eksperymenty.';return}try{const d=await api(`/api/experiments/compare?a=${encodeURIComponent($('compareA').value)}&b=${encodeURIComponent($('compareB').value)}`);$('comparison').innerHTML='';const table=document.createElement('table');table.innerHTML='<thead><tr><th>Stan</th><th>A — prawdopodobieństwo</th><th>B — prawdopodobieństwo</th><th>Różnica bezwzględna</th></tr></thead>';const tb=document.createElement('tbody');d.distribution.forEach(x=>{const tr=document.createElement('tr');[x.state,x.a_probability,x.b_probability,x.absolute_difference].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});tb.append(tr)});table.append(tb);$('comparison').append(table)}catch(e){$('comparison').textContent=e.message}}
+async function refreshProjects(){try{projects=(await api('/api/projects')).projects;const s=$('projectSelect');s.innerHTML='';projects.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;s.append(o)})}catch(e){show(e.message)}}
+$('run').onclick=async()=>{try{const d=await api('/api/jobs',{method:'POST',body:JSON.stringify(payload())});show(`Zadanie dodane: ${d.id}\nStatus: ${d.status}`);await refreshJobs()}catch(e){show(e.message)}};
+$('bell').onclick=()=>{$('name').value='Bell state';$('qubits').value=2;$('shots').value=1024;$('noise').value=0;$('gates').value='h,0\ncx,0,1';show('Wczytano przykład stanu Bella.')};
+$('save').onclick=async()=>{try{const d=await api('/api/projects',{method:'POST',body:JSON.stringify({name:$('name').value||'Projekt',circuit:payload()})});$('projectMessage').textContent='Zapisano projekt '+d.id;await refreshProjects()}catch(e){show(e.message)}};
+$('export').onclick=()=>{const p=payload();let q=`OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[${p.qubits}];\ncreg c[${p.qubits}];\n`;for(const g of p.gates){const a=`q[${g.qubit}]`;if(['h','x','y','z','s','t'].includes(g.gate))q+=`${g.gate} ${a};\n`;else if(['cx','cz','swap'].includes(g.gate))q+=`${g.gate} ${a},q[${g.target}];\n`;else if(['rx','ry','rz'].includes(g.gate))q+=`${g.gate}(pi/2) ${a};\n`}q+=`measure q -> c;\n`;const blob=new Blob([q],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='qwantum-circuit.qasm';a.click();URL.revokeObjectURL(a.href)};
+$('jobsRefresh').onclick=refreshJobs;$('expRefresh').onclick=refreshExperiments;$('compare').onclick=compare;$('projectRefresh').onclick=refreshProjects;
+$('saveFile').onclick=async()=>{try{const d=await api('/api/circuits/export',{method:'POST',body:JSON.stringify({name:$('name').value||'circuit',circuit:payload()})});$('circuitFileMessage').textContent='Zapisano plik: '+d.filename;await refreshCircuitFiles()}catch(e){$('circuitFileMessage').textContent=e.message}};
+async function refreshCircuitFiles(){try{circuitFiles=(await api('/api/circuits/files')).files;const s=$('circuitFileSelect');s.innerHTML='';circuitFiles.forEach(f=>{const o=document.createElement('option');o.value=f.filename;o.textContent=f.name+' · '+f.filename;s.append(o)})}catch(e){$('circuitFileMessage').textContent=e.message}}
+$('circuitFilesRefresh').onclick=refreshCircuitFiles;
+$('loadCircuitFile').onclick=async()=>{try{const f=$('circuitFileSelect').value;if(!f)return;const d=await api('/api/circuits/files/'+encodeURIComponent(f));const c=d.circuit;$('name').value=c.name||d.name||'Obwód';$('qubits').value=c.qubits||2;$('shots').value=c.shots||1024;$('noise').value=c.noise||0;$('gates').value=(c.gates||[]).map(g=>[g.gate,g.qubit,...(g.target!==undefined?[g.target]:[]),...(g.angle!==undefined?[g.angle]:[])].join(',')).join('\n');$('circuitFileMessage').textContent='Wczytano '+f}catch(e){$('circuitFileMessage').textContent=e.message}};
+$('circuitImport').onchange=async ev=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;try{const d=JSON.parse(await file.text());const normalized=await api('/api/circuits/import',{method:'POST',body:JSON.stringify(d)});const c=normalized.circuit;$('name').value=normalized.name||c.name;$('qubits').value=c.qubits;$('shots').value=c.shots;$('noise').value=c.noise||0;$('gates').value=(c.gates||[]).map(g=>[g.gate,g.qubit,...(g.target!==undefined?[g.target]:[]),...(g.angle!==undefined?[g.angle]:[])].join(',')).join('\n');$('circuitFileMessage').textContent='Zaimportowano obwód.'}catch(e){$('circuitFileMessage').textContent='Import nieudany: '+e.message}finally{ev.target.value=''}};$('refresh').onclick=async()=>{await checkHealth();await refreshJobs();await refreshExperiments();await refreshProjects()};
+$('loadProject').onclick=()=>{const p=projects.find(x=>x.id===$('projectSelect').value);if(!p)return;const c=p.circuit;$('name').value=c.name||p.name;$('qubits').value=c.qubits||2;$('shots').value=c.shots||1024;$('noise').value=c.noise||0;$('gates').value=(c.gates||[]).map(g=>[g.gate,g.qubit,...(g.target!==undefined?[g.target]:[]),...(g.angle!==undefined?[g.angle]:[])].join(',')).join('\n');$('projectMessage').textContent='Wczytano '+p.name};
+$('deleteProject').onclick=async()=>{const id=$('projectSelect').value;if(!id)return;try{await api('/api/projects/'+id,{method:'DELETE'});await refreshProjects();$('projectMessage').textContent='Usunięto projekt.'}catch(e){$('projectMessage').textContent=e.message}};
+async function checkHealth(){try{const h=await api('/api/health');$('health').textContent=`API OK · v${h.version} · ${h.workers} worker(y)`}catch(e){$('health').textContent='API niedostępne'}}
+
+
+let draggedGateIndex=null;
+let undoStack=[],redoStack=[],lastGateText=$('gates').value;
+function updateHistoryButtons(){$('undoGate').disabled=undoStack.length===0;$('redoGate').disabled=redoStack.length===0}
+function commitGateText(nextText){
+  const current=$('gates').value;
+  if(nextText===current)return;
+  undoStack.push(current);if(undoStack.length>100)undoStack.shift();
+  redoStack=[];$('gates').value=nextText;lastGateText=nextText;updateHistoryButtons();
+}
+function applyHistoryText(nextText){$('gates').value=nextText;lastGateText=nextText;renderGateList();renderCircuitDiagram();updateHistoryButtons()}
+$('undoGate').onclick=()=>{if(!undoStack.length)return;redoStack.push($('gates').value);applyHistoryText(undoStack.pop());show('Cofnięto zmianę obwodu.')};
+$('redoGate').onclick=()=>{if(!redoStack.length)return;undoStack.push($('gates').value);applyHistoryText(redoStack.pop());show('Ponowiono zmianę obwodu.')};
+function gateLines(){return $('gates').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)}
+function setGateLines(lines){commitGateText(lines.join('\n'));renderGateList();renderCircuitDiagram()}
+function renderGateList(){
+  const root=$('gateList');if(!root)return;root.innerHTML='';
+  const lines=gateLines();
+  if(!lines.length){const empty=document.createElement('div');empty.className='tiny';empty.textContent='Brak bramek. Dodaj je z palety powyżej.';root.append(empty);return}
+  lines.forEach((line,index)=>{
+    const row=document.createElement('div');row.className='gate-item';row.draggable=true;row.dataset.index=String(index);
+    const handle=document.createElement('span');handle.className='drag-handle';handle.textContent='⠿';handle.title='Przeciągnij, aby zmienić kolejność';
+    const code=document.createElement('span');code.className='gate-code';code.textContent=`${index+1}. ${line}`;
+    const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='Przesuń w górę';up.disabled=index===0;
+    up.onclick=()=>moveGate(index,index-1);
+    const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='Przesuń w dół';down.disabled=index===lines.length-1;
+    down.onclick=()=>moveGate(index,index+1);
+    const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='Usuń bramkę';remove.className='danger';
+    remove.onclick=()=>{const updated=gateLines();updated.splice(index,1);setGateLines(updated);show('Usunięto bramkę.')};
+    const duplicate=document.createElement('button');duplicate.type='button';duplicate.textContent='⧉';duplicate.title='Duplikuj bramkę';
+    duplicate.onclick=()=>{const updated=gateLines();updated.splice(index+1,0,updated[index]);setGateLines(updated);show('Zduplikowano bramkę.')};
+    row.append(handle,code,up,down,duplicate,remove);
+    row.addEventListener('dragstart',ev=>{draggedGateIndex=index;row.classList.add('dragging');if(ev.dataTransfer){ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',String(index))}});
+    row.addEventListener('dragend',()=>{draggedGateIndex=null;row.classList.remove('dragging');root.querySelectorAll('.gate-item').forEach(el=>el.classList.remove('dragging'))});
+    row.addEventListener('dragover',ev=>{ev.preventDefault();if(ev.dataTransfer)ev.dataTransfer.dropEffect='move'});
+    row.addEventListener('drop',ev=>{ev.preventDefault();const from=draggedGateIndex;const to=Number(row.dataset.index);if(from!==null&&Number.isInteger(to)&&from!==to)moveGate(from,to)});
+    root.append(row);
+  });
+}
+function moveGate(from,to){const lines=gateLines();if(from<0||to<0||from>=lines.length||to>=lines.length)return;const [line]=lines.splice(from,1);lines.splice(to,0,line);setGateLines(lines);show('Zmieniono kolejność bramek.')}
+
+
+$('validateIntegrity').onclick=async()=>{
+  const lines=gateLines(),errors=[],warnings=[];
+  const n=Number($('qubits').value);
+  const allowed=new Set(['h','x','y','z','s','t','rx','ry','rz','cx','cz','swap']);
+  lines.forEach((line,i)=>{
+    const p=line.split(',').map(v=>v.trim()),g=(p[0]||'').toLowerCase(),q=Number(p[1]),target=Number(p[2]),angle=Number(p[3]);
+    if(!allowed.has(g)){errors.push(`Linia ${i+1}: nieobsługiwana bramka „${g}”.`);return}
+    if(!Number.isInteger(q)||q<0||q>=n)errors.push(`Linia ${i+1}: kubit ${p[1]} poza zakresem 0–${n-1}.`);
+    if(['cx','cz','swap'].includes(g)){
+      if(p.length<3||!Number.isInteger(target)||target<0||target>=n)errors.push(`Linia ${i+1}: bramka ${g.toUpperCase()} wymaga prawidłowego kubitu docelowego.`);
+      else if(target===q)errors.push(`Linia ${i+1}: kubit kontrolny i docelowy nie mogą być takie same.`);
+    }
+    if(['rx','ry','rz'].includes(g)&&p[3]!==undefined&&p[3]!==''&&!Number.isFinite(angle))errors.push(`Linia ${i+1}: nieprawidłowy kąt obrotu.`);
+  });
+  if(lines.length>500)errors.push('Obwód przekracza limit 500 bramek.');
+  if(!lines.length)warnings.push('Obwód jest pusty.');
+  const root=$('integrityResult');
+  if(errors.length){root.style.color='#ff7e89';root.textContent='Błędy: '+errors.join(' ');return}
+  try{
+    const d=await api('/api/circuit/validate',{method:'POST',body:JSON.stringify(payload())});
+    warnings.push(...(d.warnings||[]));
+    root.style.color=warnings.length?'#ffd58a':'#65f0bd';
+    root.textContent=warnings.length?'Połączenia sprawdzone. Ostrzeżenia: '+warnings.join(' '):'Połączenia i parametry obwodu są poprawne.';
+  }catch(e){root.style.color='#ff7e89';root.textContent='Walidacja nieudana: '+e.message}
+};
+
+function renderCircuitDiagram(){
+  const root=$('circuitDiagram'); if(!root)return;
+  const p=payload(); const n=Math.max(1,Math.min(8,p.qubits||1)); const gates=p.gates;
+  const width=Math.max(640,150+gates.length*72), height=70+n*52;
+  const ns='http://www.w3.org/2000/svg'; const svg=document.createElementNS(ns,'svg');
+  svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.setAttribute('width','100%');svg.setAttribute('role','img');svg.setAttribute('aria-label','Schemat obwodu kwantowego');
+  const add=(tag,attrs,text)=>{const e=document.createElementNS(ns,tag);Object.entries(attrs||{}).forEach(([k,v])=>e.setAttribute(k,v));if(text!==undefined)e.textContent=text;svg.append(e);return e};
+  for(let q=0;q<n;q++){const y=44+q*52;add('line',{x1:76,y1:y,x2:width-20,y2:y,stroke:'#47718c','stroke-width':2});add('text',{x:8,y:y+5,fill:'#9bb4c8','font-size':14},`q${q}`)}
+  if(!gates.length)add('text',{x:90,y:25,fill:'#9bb4c8','font-size':14},'Dodaj bramki, aby zobaczyć schemat.');
+  gates.forEach((g,i)=>{const x=112+i*72,y=44+g.qubit*52,name=String(g.gate||'?').toUpperCase();
+    if(['cx','cz','swap'].includes(g.gate)&&Number.isInteger(g.target)&&g.target<n){const ty=44+g.target*52;add('line',{x1:x,y1:y,x2:x,y2:ty,stroke:'#4be4ff','stroke-width':2});if(g.gate==='cx'){add('circle',{cx:x,cy:y,r:6,fill:'#4be4ff'});add('circle',{cx:x,cy:ty,r:12,fill:'none',stroke:'#4be4ff','stroke-width':2});add('line',{x1:x-12,y1:ty,x2:x+12,y2:ty,stroke:'#4be4ff','stroke-width':2});add('line',{x1:x,y1:ty-12,x2:x,y2:ty+12,stroke:'#4be4ff','stroke-width':2})}else{add('rect',{x:x-15,y:Math.min(y,ty)-15,width:30,height:Math.abs(ty-y)+30,rx:7,fill:'#10364b',stroke:'#4be4ff'});add('text',{x,y:(y+ty)/2+5,'text-anchor':'middle',fill:'#e8f5ff','font-size':12},name)}}
+    else{add('rect',{x:x-19,y:y-17,width:38,height:34,rx:7,fill:'#124b61',stroke:'#4be4ff'});add('text',{x,y:y+5,'text-anchor':'middle',fill:'#e8f5ff','font-size':12},name);if(['rx','ry','rz'].includes(g.gate)){add('text',{x,y:y+31,'text-anchor':'middle',fill:'#9bb4c8','font-size':10},Number(g.angle??Math.PI/2).toFixed(2))}}
+  });
+  root.innerHTML='';root.append(svg);
+}
+
+$('gatePalette').querySelectorAll('[data-gate]').forEach(btn=>btn.addEventListener('click',()=>{
+  const g=btn.dataset.gate, q=Number($('gateQ').value), t=Number($('gateTarget').value), a=Number($('gateAngle').value);
+  let parts=[g,q];
+  if(['cx','cz','swap'].includes(g)) parts.push(t);
+  if(['rx','ry','rz'].includes(g)) parts=[g,q,'',a];
+  $('gates').value+=($('gates').value.trim()?'\n':'')+parts.join(',');
+  $('gateType').value=g; renderCircuitDiagram(); show('Dodano '+g.toUpperCase()+' z palety.');
+}));
+$('validateCircuit').onclick=async()=>{
+  try{
+    const d=await api('/api/circuit/validate',{method:'POST',body:JSON.stringify(payload())});
+    const root=$('validationResult');root.textContent=d.message+' Bramki: '+d.gate_count+'.';
+    if(d.warnings.length) root.textContent+=' Ostrzeżenia: '+d.warnings.join(' ');
+    root.style.color=d.warnings.length?'#ffd58a':'#65f0bd';
+  }catch(e){$('validationResult').textContent='Błąd walidacji: '+e.message;$('validationResult').style.color='#ff7e89'}
+};
+
+$('gates').addEventListener('input',()=>{
+  const current=$('gates').value;
+  if(current!==lastGateText){undoStack.push(lastGateText);if(undoStack.length>100)undoStack.shift();redoStack=[];lastGateText=current;updateHistoryButtons()}
+  renderGateList();renderCircuitDiagram()
+});
+$('qubits').addEventListener('change',renderCircuitDiagram);
+const originalAddGate=$('addGate').onclick;
+$('addGate').onclick=()=>{originalAddGate();renderCircuitDiagram()};
+const originalClearGates=$('clearGates').onclick;
+$('clearGates').onclick=()=>{originalClearGates();renderCircuitDiagram()};
+$('bell').addEventListener('click',()=>setTimeout(renderCircuitDiagram,0));
+
+
+function loadExample(name,qubits,shots,noise,gates){
+  $('name').value=name;$('qubits').value=qubits;$('shots').value=shots;$('noise').value=noise;
+  setGateLines(gates);updateGateRanges();show('Wczytano przykład: '+name+'.');
+}
+$('bell').onclick=()=>loadExample('Stan Bella',2,1024,0,['h,0','cx,0,1']);
+$('exampleSuperposition').onclick=()=>loadExample('Superpozycja H',1,1024,0,['h,0']);
+$('exampleX').onclick=()=>loadExample('Test bramki X',1,1024,0,['x,0']);
+$('exampleGHZ').onclick=()=>loadExample('Stan GHZ',3,2048,0,['h,0','cx,0,1','cx,1,2']);
+$('runDiagnostics').onclick=async()=>{
+  const summary=$('diagnosticSummary'),report=$('diagnosticReport');
+  summary.textContent='Uruchamianie testów…';report.innerHTML='';
+  try{
+    const d=await api('/api/diagnostics');
+    summary.textContent=`Wynik: ${d.passed}/${d.total} testów zaliczonych · ${d.backend} · wersja ${d.version}`;
+    summary.style.color=d.ok?'#65f0bd':'#ff7e89';
+    const table=document.createElement('table');
+    table.innerHTML='<thead><tr><th>Test</th><th>Wynik</th><th>Maksymalny błąd</th></tr></thead>';
+    const body=document.createElement('tbody');
+    d.checks.forEach(item=>{const tr=document.createElement('tr');
+      [item.name,item.passed?'OK':'BŁĄD',item.max_error].forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===1)td.style.color=item.passed?'#65f0bd':'#ff7e89';tr.append(td)});
+      body.append(tr)});
+    table.append(body);report.append(table);
+    const note=document.createElement('p');note.className='tiny';note.textContent=d.note;report.append(note);
+  }catch(e){summary.style.color='#ff7e89';summary.textContent='Diagnostyka nie powiodła się: '+e.message}
+};
+
+nodes();checkHealth();refreshJobs();
+
+$('rerunExperiment').addEventListener('click',async()=>{
+  const id=$('compareA').value;
+  if(!id){show('Wybierz eksperyment A.');return}
+  try{const d=await api('/api/experiments/'+encodeURIComponent(id)+'/rerun',{method:'POST'});show('Ponowne uruchomienie dodane do kolejki: '+d.id);await refreshJobs()}
+  catch(e){show(e.message)}
+});
+$('importExperiment').addEventListener('click',async()=>{
+  const file=$('importExperimentFile').files[0];
+  if(!file){show('Najpierw wybierz plik eksportu eksperymentu JSON.');return}
+  try{
+    const data=JSON.parse(await file.text());
+    const d=await api('/api/experiments/import',{method:'POST',body:JSON.stringify(data)});
+    show('Zaimportowano eksperyment: '+d.name);
+    $('importExperimentFile').value='';
+    await refreshExperiments();
+  }catch(e){show(e.message)}
+});
+
+
+const SESSION_KEY='qwantum-vm-session-v1';
+function saveLocalSession(){
+  try{
+    const state={name:$('name').value,qubits:$('qubits').value,shots:$('shots').value,noise:$('noise').value,gates:$('gates').value,savedAt:new Date().toISOString()};
+    localStorage.setItem(SESSION_KEY,JSON.stringify(state));
+    const status=$('sessionStatus');if(status)status.textContent='Sesja lokalna zapisana automatycznie: '+new Date(state.savedAt).toLocaleTimeString();
+  }catch(e){const status=$('sessionStatus');if(status)status.textContent='Nie udało się zapisać sesji lokalnej w tej przeglądarce.'}
+}
+function restoreLocalSession(){
+  try{
+    const raw=localStorage.getItem(SESSION_KEY);
+    if(!raw){show('Brak zapisanej sesji lokalnej w tej przeglądarce.');return}
+    const s=JSON.parse(raw);
+    for(const key of ['name','qubits','shots','noise','gates'])if(typeof s[key]==='string')$(key).value=s[key];
+    updateGateRanges();renderGateList();renderCircuitDiagram();
+    const status=$('sessionStatus');if(status)status.textContent='Przywrócono sesję zapisaną: '+(s.savedAt||'data nieznana');
+    show('Przywrócono lokalną sesję edytora.');
+  }catch(e){show('Nie można odczytać zapisanej sesji: '+e.message)}
+}
+let sessionSaveTimer=null;
+['name','qubits','shots','noise','gates'].forEach(id=>{
+  $(id).addEventListener('input',()=>{
+    if(sessionSaveTimer)clearTimeout(sessionSaveTimer);
+    sessionSaveTimer=setTimeout(saveLocalSession,500);
+  });
+});
+$('restoreSession').addEventListener('click',restoreLocalSession);
+$('compareMulti').addEventListener('click',async()=>{
+  const ids=[...new Set([$('compareA').value,$('compareB').value].filter(Boolean))];
+  if(ids.length<2){$('multiComparison').textContent='Wybierz dwa różne eksperymenty jako minimum.';return}
+  try{
+    const d=await api('/api/experiments/compare/multi?ids='+encodeURIComponent(ids.join(',')));
+    const root=$('multiComparison');root.innerHTML='';
+    const heading=document.createElement('p');heading.textContent='Porównanie '+d.count+' eksperymentów';root.append(heading);
+    const table=document.createElement('table');
+    const thead=document.createElement('thead');const hr=document.createElement('tr');
+    ['Stan',...d.experiments.map(e=>e.name+' · '+e.shots+' shots')].forEach(v=>{const th=document.createElement('th');th.textContent=v;hr.append(th)});
+    thead.append(hr);table.append(thead);const tbody=document.createElement('tbody');
+    d.states.forEach(state=>{const tr=document.createElement('tr');const first=document.createElement('td');first.textContent=state;tr.append(first);
+      d.experiments.forEach(e=>{const td=document.createElement('td');td.textContent=(e.distribution[state]||0).toString();tr.append(td)});tbody.append(tr)});
+    table.append(tbody);root.append(table);
+  }catch(e){$('multiComparison').textContent=e.message}
+});
+$('exportCompareCsv').addEventListener('click',()=>{
+  const a=$('compareA').value,b=$('compareB').value;
+  if(!a||!b||a===b){show('Wybierz dwa różne eksperymenty A i B.');return}
+  window.location.href='/api/experiments/compare/export.csv?a='+encodeURIComponent(a)+'&b='+encodeURIComponent(b);
+});
+
+
+$('stateEvolution').addEventListener('click',async()=>{
+  const summary=$('evolutionSummary'),root=$('evolutionChart');
+  summary.textContent='Obliczanie ewolucji stanu…';root.innerHTML='';
+  try{
+    const d=await api('/api/statevector/evolution',{method:'POST',body:JSON.stringify(payload())});
+    summary.textContent=`${d.step_count} etapów · ${d.qubits} kubitów · ${d.note}`;
+    d.steps.forEach(step=>{
+      const card=document.createElement('div');card.className='panel';card.style.cssText='padding:12px;background:#091726';
+      const title=document.createElement('strong');title.textContent=`Etap ${step.index}: ${step.label}`;card.append(title);
+      const bars=document.createElement('div');bars.style.cssText='display:flex;gap:6px;align-items:flex-end;overflow-x:auto;min-height:120px;padding:10px 0';
+      step.probabilities.forEach(item=>{
+        const col=document.createElement('div');col.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:38px;height:110px;gap:3px';
+        const val=document.createElement('span');val.className='tiny';val.textContent=(item.probability*100).toFixed(1)+'%';
+        const bar=document.createElement('div');bar.title=`|${item.state}⟩ = ${item.probability}`;bar.style.cssText=`width:22px;height:${Math.max(2,item.probability*72)}px;background:#4be4ff;border-radius:4px 4px 0 0`;
+        const label=document.createElement('span');label.className='tiny';label.textContent=item.state;
+        col.append(val,bar,label);bars.append(col);
+      });
+      card.append(bars);
+      const amp=document.createElement('p');amp.className='tiny';
+      amp.textContent='Niezerowe amplitudy: '+step.amplitudes.map(a=>`|${a.state}⟩ ${a.real}${a.imag<0?'':'+'}${a.imag}i`).join(' · ');
+      card.append(amp);root.append(card);
+    });
+  }catch(e){summary.textContent='Nie udało się obliczyć ewolucji: '+e.message}
+});
+
+
+let lastNoiseEvolution=null;
+$('noiseEvolution').addEventListener('click',async()=>{
+  const summary=$('noiseEvolutionSummary'),root=$('noiseEvolutionReport');
+  summary.textContent='Symulowanie idealnych i zaszumionych rozkładów…';root.innerHTML='';
+  $('exportNoiseReport').disabled=true;
+  try{
+    const d=await api('/api/statevector/noise-evolution',{method:'POST',body:JSON.stringify(payload())});
+    lastNoiseEvolution=d;$('exportNoiseReport').disabled=false;
+    summary.textContent=`${d.step_count} etapów · szum=${d.noise} · ${d.shots_used_per_step} pomiarów na etap. ${d.note}`;
+    d.steps.forEach(step=>{
+      const card=document.createElement('div');card.className='panel';card.style.cssText='padding:12px;background:#091726';
+      const title=document.createElement('strong');title.textContent=`Etap ${step.index}: ${step.label} · TVD ${step.total_variation_distance}`;card.append(title);
+      const bars=document.createElement('div');bars.style.cssText='display:flex;gap:8px;align-items:flex-end;overflow-x:auto;min-height:145px;padding:10px 0';
+      step.ideal.forEach(item=>{
+        const noisy=step.noisy.find(x=>x.state===item.state);
+        const col=document.createElement('div');col.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:54px;height:130px;gap:3px';
+        const val=document.createElement('span');val.className='tiny';val.textContent=(item.probability*100).toFixed(1)+' / '+((noisy?noisy.probability:0)*100).toFixed(1)+'%';
+        const pair=document.createElement('div');pair.style.cssText='display:flex;align-items:flex-end;gap:3px;height:88px';
+        const b1=document.createElement('div');b1.title='Idealny: '+item.probability;b1.style.cssText=`width:17px;height:${Math.max(2,item.probability*78)}px;background:#4be4ff;border-radius:3px 3px 0 0`;
+        const b2=document.createElement('div');b2.title='Zaszumiony: '+(noisy?noisy.probability:0);b2.style.cssText=`width:17px;height:${Math.max(2,(noisy?noisy.probability:0)*78)}px;background:#ffbd69;border-radius:3px 3px 0 0`;
+        pair.append(b1,b2);
+        const label=document.createElement('span');label.className='tiny';label.textContent=item.state;
+        col.append(val,pair,label);bars.append(col);
+      });
+      card.append(bars);
+      const legend=document.createElement('p');legend.className='tiny';legend.textContent='Niebieski: idealny · pomarańczowy: zaszumiony';card.append(legend);
+      root.append(card);
+    });
+  }catch(e){summary.textContent='Nie udało się porównać ewolucji: '+e.message}
+});
+$('exportNoiseReport').addEventListener('click',()=>{
+  if(!lastNoiseEvolution){show('Najpierw uruchom porównanie.');return}
+  const blob=new Blob([JSON.stringify(lastNoiseEvolution,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download='qwantum-noise-evolution.json';document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
+});
+
+$('diagnosticExport').addEventListener('click',()=>{window.location.href='/api/diagnostics/export'});
+$('exportExperiment').addEventListener('click',()=>{
+  const id=$('compareA').value;
+  if(!id){show('Brak eksperymentu do eksportu.');return}
+  window.location.href='/api/experiments/'+encodeURIComponent(id)+'/export';
+});
+refreshExperiments();refreshProjects();refreshCircuitFiles();setInterval(()=>{refreshJobs();checkHealth()},2500);renderCircuitDiagram();renderGateList();updateHistoryButtons();
+renderCircuitDiagram();
+
+
+function updateGateRanges(){const n=Math.max(1,Math.min(8,Number($('qubits').value)||2));$('gateQ').max=n-1;$('gateTarget').max=n-1;}
+$('qubits').addEventListener('change',updateGateRanges);
+$('addGate').onclick=()=>{const g=$('gateType').value,q=Number($('gateQ').value),t=Number($('gateTarget').value),a=Number($('gateAngle').value);let p=[g,q];if(['cx','cz','swap'].includes(g))p.push(t);if(['rx','ry','rz'].includes(g))p=[g,q,'',a];const lines=gateLines();lines.push(p.join(','));setGateLines(lines);show('Dodano bramkę '+g+'.')};
+$('clearGates').onclick=()=>{setGateLines([]);show('Wyczyszczono obwód.')};
+$('statevector').onclick=async()=>{try{const d=await api('/api/statevector',{method:'POST',body:JSON.stringify(payload())});const root=$('statevectorResult');root.innerHTML='';const table=document.createElement('table');table.innerHTML='<thead><tr><th>Stan</th><th>Re</th><th>Im</th><th>|amplituda|</th><th>Prawdopodobieństwo</th></tr></thead>';const body=document.createElement('tbody');d.amplitudes.forEach(a=>{const tr=document.createElement('tr');const p=d.probabilities.find(x=>x.state===a.state);[a.state,a.real,a.imag,a.magnitude,p?p.probability:0].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});body.append(tr)});table.append(body);root.append(table);
+const chart=$('probabilityChart');chart.innerHTML='';
+d.probabilities.forEach(item=>{const col=document.createElement('div');col.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:42px;height:120px;gap:4px';
+const val=document.createElement('div');val.textContent=(item.probability*100).toFixed(1)+'%';val.style.cssText='font-size:10px;color:#9bb4c8';
+const bar=document.createElement('div');bar.title=`|${item.state}⟩: ${item.probability}`;bar.style.cssText=`width:24px;min-height:2px;height:${Math.max(2,item.probability*82)}px;background:#4be4ff;border-radius:5px 5px 0 0`;
+const label=document.createElement('div');label.textContent=item.state;label.style.cssText='font-size:10px;color:#e8f5ff';col.append(val,bar,label);chart.append(col)});
+const note=document.createElement('p');note.className='tiny';note.textContent=d.note;root.append(note)}catch(e){$('statevectorResult').textContent=e.message}};
+
+
+let lastShotsStabilityReport=null;
+const shotsButton=document.getElementById('runShotsStability');
+if(shotsButton){
+  shotsButton.addEventListener('click', async ()=>{
+    const message=document.getElementById('shotsStabilityMessage');
+    const results=document.getElementById('shotsStabilityResults');
+    const exportButton=document.getElementById('exportShotsStability');
+    message.textContent='Analizowanie…'; results.innerHTML=''; shotsButton.disabled=true;
+    try{
+      const payload={
+        name:document.getElementById('name')?.value || 'Eksperyment',
+        qubits:Number(document.getElementById('qubits')?.value || 2),
+        shots:Number(document.getElementById('shots')?.value || 1024),
+        noise:0,
+        gates:document.getElementById('gates').value.split(/\\n/).map(s=>s.trim()).filter(Boolean).map(line=>{const [gate,q,target,angle]=line.split(',').map(x=>x.trim());return {gate,qubit:Number(q),...(target!==undefined&&target!==''?{target:Number(target)}:{}),...(angle!==undefined&&angle!==''?{angle:Number(angle)}:{})}})
+      };
+      const response=await fetch('/api/analysis/shots-stability',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.detail || 'Nie udało się wykonać analizy.');
+      lastShotsStabilityReport=data; exportButton.disabled=false;
+      const rows=data.results.map(r=>`<tr><td>${r.shots}</td><td>${r.repetitions}</td><td>${r.tvd_values.map(v=>v.toFixed(4)).join(', ')}</td><td>${r.mean_tvd.toFixed(4)}</td><td>${r.stddev_tvd.toFixed(4)}</td></tr>`).join('');
+      results.innerHTML=`<table><thead><tr><th>Shots</th><th>Próby</th><th>TVD w próbach</th><th>Średnia TVD ↓</th><th>Odch. standardowe</th></tr></thead><tbody>${rows}</tbody></table><p class="tiny">${data.note}</p>`;
+      message.textContent='Analiza zakończona.';
+    }catch(error){message.textContent=error.message || String(error);}
+    finally{shotsButton.disabled=false;}
+  });
+  document.getElementById('exportShotsStability')?.addEventListener('click',()=>{
+    if(!lastShotsStabilityReport)return;
+    const blob=new Blob([JSON.stringify(lastShotsStabilityReport,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url;a.download='qwantum-shots-stability.json';a.click();URL.revokeObjectURL(url);
+  });
+}
+
+</script></body></html>
